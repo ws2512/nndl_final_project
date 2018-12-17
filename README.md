@@ -34,3 +34,12 @@ The VGG dataset we used is the file 'imagenet-vgg-verydeep-19.mat'. This is from
 - outputs folder stores all the output images
 
 - model folder stores all the saved models
+
+----------------------------------------------------------------------------------------------
+
+#### Example:
+
+| Content | Style | Output |
+|---|---|---|
+| <img src="https://github.com/ws2512/nndl_final_project/raw/master/contents/Panda.jpg" width="280px" height="210px" alt="Content" > |<img src="https://github.com/ws2512/nndl_final_project/raw/master/styles/Guernica.jpg" width="280px" height="210px" alt="Style" > | <img src="https://github.com/ws2512/nndl_final_project/raw/master/outputs/Panda_output.jpg" width="280px" height="210px" alt="Output" > |
+| <img src="https://github.com/ws2512/nndl_final_project/raw/master/contents/istanbul_bosphorus.jpg" width="280px" height="210px" alt="Content" > |<img src="https://github.com/ws2512/nndl_final_project/raw/master/styles/Sunrise.jpg" width="280px" height="210px" alt="Style" > | <img src="https://github.com/ws2512/nndl_final_project/raw/master/outputs/istanbul_Sunrise.jpg" width="280px" height="210px" alt="Output" > |
