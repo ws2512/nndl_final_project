@@ -3,15 +3,15 @@ import scipy.io
 import scipy.misc
 import tensorflow as tf 
 import cv2
+import time
 
 class ArtisticStyle():
 
     def __init__(self):
-        self.vgg = scipy.io.loadmat('imagenet-vgg-verydeep-19.mat') 
+        self.vgg = scipy.io.loadmat('imagenet-vgg-verydeep-19.mat') # link: http://www.vlfeat.org/matconvnet/pretrained/
         self.img_width = 800
         self.img_height = 600
         self.channels = 3
-        self.model = self.load_vgg() #build the vgg model when initialize, thus saving the time
         self.content_dir = 'contents/'
         self.style_dir = 'styles/'
         self.output_dir = 'outputs/'
@@ -25,7 +25,7 @@ class ArtisticStyle():
     def conv2d(self, prev_layer, layer):
         W, b = self.get_weights(layer)
         W = tf.constant(W)
-        b = tf.constant(np.reshape(b, (b.shape[0],)))
+        b = tf.constant(np.reshape(b, (b.size)))
         conv2d_layer = tf.nn.conv2d(prev_layer, W, strides=[1, 1, 1, 1], padding='SAME') + b
         return conv2d_layer
 
@@ -92,24 +92,28 @@ class ArtisticStyle():
         image = scipy.misc.imread(img_dir+img_name+".jpg")
         image = scipy.misc.imresize(image, (self.img_height, self.img_width))
         image = image[np.newaxis, :, :, :]
-        image = np.copy(image).astype('float64')
+        image = np.copy(image).astype('float32')
         image -= np.array([123.68, 116.779, 103.939]).reshape((1,1,1,3)) #Subtracts the mean RGB value
         return image
 
     def save_image(self, output_dir, img_name, image):
-        scipy.misc.imsave(output_dir+img_name+".jpg", image[0])
+        image += np.array([123.68, 116.779, 103.939]).reshape((1,1,1,3))
+        image = image[0]
+        image = np.clip(image, 0, 255).astype('uint8')
+        scipy.misc.imsave(output_dir+img_name+".jpg", image)
 
     def calc_content_loss(self, p, x):
         M = p.shape[1] * p.shape[2] # height * width
         N = p.shape[3] # # of filters
-        loss = 0.5 * tf.reduce_sum(tf.pow(x - p, 2))
+        #loss = 0.5 * tf.reduce_sum(tf.pow(x - p, 2))  #original way in the paper
+        loss = (1 / (4 * N * M)) * tf.reduce_sum(tf.pow(x - p, 2))
         return loss
 
-    def content_loss(self, sess):
+    def content_loss(self, sess, model):
         '''
         return content loss
         '''
-        return self.calc_content_loss(sess.run(self.model['conv4_2']), self.model['conv4_2'])
+        return self.calc_content_loss(sess.run(model['relu4_2']), model['relu4_2']) #relu later
 
     def gram_matrix(self, x, M, N):
         F = tf.reshape(x, (M, N))
@@ -121,26 +125,24 @@ class ArtisticStyle():
         N = a.shape[3] # # of filters
         A = self.gram_matrix(a, M, N) # gram matrix of original image
         G = self.gram_matrix(x, M, N)  # gram matrix of generated image
-        loss = (1 / (4 * (N ^ 2) * (M ^ 2))) * tf.reduce_sum(tf.pow((G - A), 2))
+        loss = (1 / (4 * (N**2) * (M**2))) * tf.reduce_sum(tf.pow((G - A), 2))
         return loss
 
-    def style_loss(self, sess, style_images, style_weights):
+    def style_loss(self, sess, model, style_images, style_weights):
         '''
         return style loss
         '''
         total_style_loss = 0
-        layers = [("conv1_1", 1), ("conv2_1", 2), ("conv3_1", 3), ("conv4_1", 4), ("conv5_1", 5)]
+        layers = [("relu1_1",0.2), ("relu2_1",0.2), ("relu3_1",0.2), ("relu4_1",0.2), ("relu5_1",0.2)] #relu later
         for img, weight in zip(style_images, style_weights):
-            sess.run(self.model["input"].assign(img))
-            style_loss = 0
-            for layer in layers:
-                E = self.calc_style_loss(sess.run(self.model[layer[0]]), self.model[layer[0]])
-                W = layer[1]
-                style_loss += E * W
+            sess.run(model["input"].assign(img))
+            E = [self.calc_style_loss(sess.run(model[layer_name]), model[layer_name]) for layer_name, _ in layers]
+            W = [w for _, w in layers]
+            style_loss = sum([E[l]*W[l] for l in range(len(layers))])
             total_style_loss += style_loss * weight
         return total_style_loss
 
-    def add_noise(self, content_img, noise_ratio=0.5):
+    def add_noise(self, content_img, noise_ratio=0.6):
         """
         Add noise to the content image
         """
@@ -158,6 +160,9 @@ class ArtisticStyle():
             return tf.train.AdadeltaOptimizer(learning_rate)
         elif optimizer == "Rmsprop":
             return tf.train.RMSPropOptimizer(learning_rate)
+        elif optimizer == "Sgd":
+            return tf.train.GradientDescentOptimizer(learning_rate)
+
     
     def keep_original_colors(self, content_image, output_image):
     
@@ -194,54 +199,80 @@ class ArtisticStyle():
         return image
 
     def training(self, content="Bangkok_TH", styles=["Composition_VII"], 
-                 style_weights=[1], output="output0", alpha=1, beta=100, optimizer='Adam', 
-                 learning_rate=1e-2, iterations=1000, original_colors=False):
+                 style_weights=[1], output="output0", alpha=5, beta=100, optimizer='Adam', 
+                 learning_rate=2.0, iterations=1000, original_colors=False, pre_trained=None, verbose=False):
         '''arg styles and style_weights: 
                - when there's only one style picture, no need to enter the style_weights, the default value is [1], 
                  the function is the vanilla version tranfer
                - when there're multiple style images and the corresponding style weights, eg: there're two styles and 
                  the style_weights=[0.3, 0.7], the function would implement a multi-style transfer
-           arg optimizer: the choices are "Adam", "Lbfgsb", "Adagrad", "Adadelta", "Rmsprop"
+           arg optimizer: the choices are "Adam", "Lbfgsb", "Adagrad", "Adadelta", "Rmsprop" and "Sgd"
            arg original_colors: if True, then conduct color preservation transfer
+           arg verbose: if True, return all costs 
         '''
-        content_image = self.load_image(self.content_dir, content)
-        style_images = [self.load_image(self.style_dir, style) for style in styles]
-        input_image = self.add_noise(content_image)
+        model_name = 'my_artist_{}'.format(int(time.time()))
+        best_loss = np.Inf
 
         with tf.Session() as sess:
+            content_image = self.load_image(self.content_dir, content)
+            style_images = [self.load_image(self.style_dir, style) for style in styles]
+            input_image = self.add_noise(content_image)
+            model = self.load_vgg()
+            
+            saver = tf.train.Saver()
             sess.run(tf.global_variables_initializer())
 
-            sess.run(self.model["input"].assign(content_image))
-            content_loss = self.content_loss(sess)
-            style_loss = self.style_loss(sess, style_images, style_weights)
+            sess.run(model["input"].assign(content_image))
+            content_loss = self.content_loss(sess, model)
+            style_loss = self.style_loss(sess, model, style_images, style_weights)
             total_loss = alpha * content_loss + beta * style_loss
+            costs = []
+            
+            if pre_trained != None:
+                try:
+                    print("Load the model from: {}".format(pre_trained))
+                    saver.restore(sess, 'model/{}'.format(pre_trained))
+                except Exception:
+                    raise ValueError("Load model Failed!")
             
             if optimizer == "Lbfgsb":
                 train_step = tf.contrib.opt.ScipyOptimizerInterface(total_loss, method="L-BFGS-B", 
                                                         options={"maxiter": iterations, "disp": 100})
                 sess.run(tf.global_variables_initializer())
-                sess.run(self.model["input"].assign(input_image))
+                sess.run(model["input"].assign(input_image))
                 train_step.minimize(sess)
-            else:
+                saver.save(sess, 'model/{}'.format(model_name))
+            else:  
                 op = self.get_optimizer(optimizer, learning_rate)
                 train_step = op.minimize(total_loss)
                 sess.run(tf.global_variables_initializer())
-                sess.run(self.model["input"].assign(input_image))
+                sess.run(model["input"].assign(input_image))
                 for i in range(iterations):
                     sess.run(train_step)
-                    count = i+1
-                    if count % 100 == 0:
-                        print('Iteration {}/{}, cost: {}'.format(count, iterations, sess.run(total_loss)))
-
-            # save the final image
-            output_image = sess.run(self.model["input"])
+                    cost = sess.run(total_loss)
+                    costs.append(cost)
+                    
+                    if (i+1) % 100 == 0:
+                        print('Iteration {}/{}, cost: {}'.format((i+1), iterations, cost))
+                        
+                        if cost < best_loss:
+                            best_loss = cost
+                            print('  Best loss! Iteration {}/{}, cost: {}'.format((i+1), iterations, cost))
+                            saver.save(sess, 'model/{}'.format(model_name))
+#                         output_image = sess.run(model["input"])
+#                         filename = 'check_t%d'%(i+1)
+#                         self.save_image(self.output_dir, filename, output_image)
             
+            output_image = sess.run(model["input"])
             if original_colors:
                 output_image = self.keep_original_colors(content_image, output_image)
             
             self.save_image(self.output_dir, output, output_image)
             print("\n")
-            print("Training ends. Output image has already been saved.")
+            print("Training ends. Output image {}.jpg and Model {} have already been saved.".format(output, model_name))
+            
+            if (verbose) & (costs!=[]) :
+                return costs
 
 
 
