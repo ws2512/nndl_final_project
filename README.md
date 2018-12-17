@@ -1,4 +1,4 @@
-# nndl_final_project
+# Artistic Style Transfer Using Neural Algorithm
 
 
 #### Dataset description:
@@ -43,3 +43,8 @@ The VGG dataset we used is the file 'imagenet-vgg-verydeep-19.mat'. This is from
 |---|---|---|
 | <img src="https://github.com/ws2512/nndl_final_project/raw/master/contents/Panda.jpg" width="280px" height="210px" alt="Content" > |<img src="https://github.com/ws2512/nndl_final_project/raw/master/styles/Guernica.jpg" width="280px" height="210px" alt="Style" > | <img src="https://github.com/ws2512/nndl_final_project/raw/master/outputs/Panda_output.jpg" width="280px" height="210px" alt="Output" > |
 | <img src="https://github.com/ws2512/nndl_final_project/raw/master/contents/istanbul_bosphorus.jpg" width="280px" height="210px" alt="Content" > |<img src="https://github.com/ws2512/nndl_final_project/raw/master/styles/Sunrise.jpg" width="280px" height="210px" alt="Style" > | <img src="https://github.com/ws2512/nndl_final_project/raw/master/outputs/istanbul_Sunrise.jpg" width="280px" height="210px" alt="Output" > |
+
+##### Three style transfer modes
+| Original | Multiple Style Blending | Color Preservation |
+|---|---|---|
+| <img src="https://github.com/ws2512/nndl_final_project/raw/master/outputs/Panda_output.jpg" width="280px" height="210px" alt="Ori" > |<img src="https://github.com/ws2512/nndl_final_project/raw/master/outputs/Panda_output_2style.jpg" width="280px" height="210px" alt="Multi" > | <img src="https://github.com/ws2512/nndl_final_project/raw/master/outputs/Panda_output_preserve_color.jpg" width="280px" height="210px" alt="Color pre" > |
